@@ -47,6 +47,7 @@ export interface AuctionRepository {
   findBySeller(sellerId: string): Promise<Auction[]>;
   findByBidder(bidderId: string): Promise<Auction[]>;
   findByWinner(winnerId: string): Promise<Auction[]>;
+  findIdsPendingSettlement(now: Date): Promise<string[]>;
 }
 
 export interface PaymentEventRepository {
