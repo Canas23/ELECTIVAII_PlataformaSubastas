@@ -1,0 +1,217 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Estilos de las piezas conectadas a la API (sesión, modales, avisos,
+   cuenta, estados de subasta). Usan la misma paleta del diseño base.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ---------- Utilidades ---------- */
+.spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+button:disabled { opacity: .6; cursor: not-allowed; transform: none !important; }
+code { background: #eef1ff; color: var(--blue); padding: 2px 6px; border-radius: 4px; font-size: 11px; word-break: break-all; }
+
+.loading-state, .empty-state {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 80px 20px; color: var(--muted); font-size: 14px; text-align: center;
+}
+
+/* ---------- Encabezado con sesión ---------- */
+.header-actions .register-button,
+.header-actions .login-button { display: inline-flex; align-items: center; gap: 6px; }
+
+.dropdown-anchor { position: relative; }
+.bell-button { position: relative; }
+.badge {
+  position: absolute; top: 2px; right: 0;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 9px; background: #e14d65; color: #fff;
+  font-size: 9px; font-weight: 800; display: grid; place-items: center;
+}
+
+.user-menu, .notifications-panel {
+  position: absolute; right: 0; top: calc(100% + 10px);
+  background: #fff; border: 1px solid #e7eaf0; border-radius: 12px;
+  box-shadow: 0 15px 45px rgba(17, 26, 46, .14); z-index: 120;
+}
+
+.user-menu { width: 210px; padding: 10px; display: grid; gap: 2px; }
+.user-menu small { color: var(--muted); font-size: 10px; padding: 6px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
+.user-menu button {
+  display: flex; align-items: center; gap: 9px; text-align: left;
+  border: none; background: transparent; padding: 10px; border-radius: 7px;
+  font-size: 12px; font-weight: 600; color: var(--navy);
+}
+.user-menu button:hover { background: #f1f3f8; }
+
+.notifications-panel { width: 340px; max-height: 440px; overflow: hidden; display: flex; flex-direction: column; }
+.notifications-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 15px 16px; border-bottom: 1px solid var(--line);
+}
+.notifications-head strong { font: 800 14px Manrope; }
+.notifications-head button {
+  border: none; background: none; color: var(--blue); font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; gap: 4px;
+}
+.notifications-panel ul { list-style: none; margin: 0; padding: 6px; overflow-y: auto; max-height: 380px; }
+.notifications-panel li button {
+  width: 100%; display: flex; gap: 10px; align-items: flex-start; text-align: left;
+  border: none; background: transparent; padding: 11px 10px; border-radius: 8px;
+}
+.notifications-panel li button:hover { background: #f5f6fa; }
+.notification-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: transparent; }
+.notifications-panel li.unread .notification-dot { background: var(--blue); }
+.notifications-panel li.unread .notification-body > span { font-weight: 700; color: var(--navy); }
+.notification-body { display: grid; gap: 4px; font-size: 12px; color: #4b5568; line-height: 1.45; }
+.notification-body small { color: var(--muted); font-size: 10px; }
+.notifications-empty { display: grid; justify-items: center; gap: 8px; padding: 35px 20px; color: var(--muted); font-size: 12px; }
+
+/* ---------- Banner ---------- */
+button.secondary-button { background: transparent; cursor: pointer; }
+button.secondary-button:hover { background: #ffffff14; }
+button.featured-card { border: none; text-align: left; cursor: pointer; font: inherit; transition: transform .2s; }
+button.featured-card:hover { transform: translateY(-3px); }
+
+/* ---------- Bloqueo del catálogo sin sesión (RN-23) ---------- */
+.auth-gate {
+  margin-top: 30px; padding: 55px 30px; text-align: center;
+  background: #fff; border: 1px dashed #cdd5ea; border-radius: 13px;
+  display: grid; justify-items: center; gap: 10px; color: var(--blue);
+}
+.auth-gate h3 { margin: 6px 0 0; font: 800 20px Manrope; color: var(--navy); }
+.auth-gate p { margin: 0 0 10px; color: var(--muted); font-size: 13px; max-width: 460px; line-height: 1.6; }
+.auth-gate > div { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+/* ---------- Etiquetas de estado ---------- */
+.product-tag.tag-cancelled, .status-cancelled { color: #8a93a6 !important; }
+.product-tag.tag-deserted, .status-deserted { color: #b7791f !important; }
+.product-tag.tag-adjudicated, .status-adjudicated { color: #7b3fe4 !important; }
+.product-tag.tag-paid, .status-paid { color: #1f9d55 !important; }
+.product-tag.tag-defaulted, .status-defaulted { color: #e14d65 !important; }
+
+.status-pill {
+  justify-self: start; padding: 5px 9px; border-radius: 5px;
+  background: #eef1ff; color: var(--blue); font-size: 9px; font-weight: 800; letter-spacing: .4px;
+}
+.status-pill.payment-pending { background: #fff6e5; color: #b7791f; }
+.status-pill.payment-paid { background: #e8f7ee; color: #1f9d55; }
+.status-pill.payment-expired { background: #fdecef; color: #e14d65; }
+
+/* ---------- Modales y formularios ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(17, 26, 46, .55); backdrop-filter: blur(3px);
+  display: grid; place-items: center; padding: 20px;
+  animation: fade .15s ease-out;
+}
+@keyframes fade { from { opacity: 0; } }
+
+.modal {
+  width: 100%; max-width: 430px; max-height: calc(100vh - 40px); overflow-y: auto;
+  background: #fff; border-radius: 15px; padding: 28px;
+  box-shadow: 0 30px 80px rgba(17, 26, 46, .3);
+  animation: rise .2s ease-out;
+}
+.modal-wide { max-width: 620px; }
+@keyframes rise { from { transform: translateY(12px); opacity: 0; } }
+
+.modal-header { display: flex; justify-content: space-between; gap: 15px; margin-bottom: 22px; }
+.modal-header h2 { margin: 0; font: 800 22px Manrope; letter-spacing: -.6px; color: var(--navy); }
+.modal-header p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.modal-close { border: none; background: #f1f3f8; color: var(--navy); width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+
+.form { display: grid; gap: 15px; }
+.form-grid { grid-template-columns: 1fr 1fr; }
+.form .span-2 { grid-column: span 2; }
+.form label { display: grid; gap: 7px; font-size: 11px; font-weight: 700; color: #4b5568; }
+.form input, .form select, .form textarea {
+  width: 100%; padding: 12px 13px; border: 1px solid #e2e6ef; border-radius: 8px;
+  background: #f8f9fc; color: var(--navy); font: inherit; font-size: 13px; font-weight: 500; outline: none;
+}
+.form textarea { resize: vertical; min-height: 90px; }
+.form input:focus, .form select:focus, .form textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #3458e817; background: #fff; }
+.form small { color: var(--muted); font-weight: 500; font-size: 10px; }
+.form-submit { width: 100%; margin-top: 4px; padding: 14px; }
+.form-error {
+  padding: 11px 13px; border-radius: 8px; background: #fdecef; color: #c2334b;
+  font-size: 12px; line-height: 1.5; margin: 10px 0;
+}
+.form .form-error { margin: 0; }
+.form-switch { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
+.form-switch button { border: none; background: none; color: var(--blue); font-weight: 800; padding: 0; }
+
+/* ---------- Avisos flotantes ---------- */
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 300; display: grid; gap: 10px; width: min(360px, calc(100vw - 40px)); }
+.toast {
+  display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
+  padding: 14px 15px; border-radius: 10px; background: var(--navy); color: #fff;
+  font-size: 12px; line-height: 1.5; box-shadow: 0 15px 35px rgba(17, 26, 46, .3);
+  border-left: 4px solid var(--blue); animation: rise .2s ease-out;
+}
+.toast-success { border-left-color: #2fbf71; }
+.toast-warning { border-left-color: #f5a524; }
+.toast button { border: none; background: none; color: #aab5cb; padding: 0; flex: none; }
+
+/* ---------- Detalle de subasta ---------- */
+.image-note { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; }
+.description-text { white-space: pre-line; }
+.auction-specifications { grid-template-columns: repeat(3, 1fr); }
+
+.bid-closed { font-size: 9px; font-weight: 800; color: #8a93a6; letter-spacing: .6px; }
+.bid-statistics { display: flex; gap: 16px; flex-wrap: wrap; }
+.bid-statistics span { display: inline-flex; align-items: center; gap: 6px; }
+
+.current-bid { transition: color .3s; }
+.bid-flash { animation: flash .9s ease-out; }
+@keyframes flash { 0% { color: #2fbf71; transform: scale(1.06); } 100% { transform: scale(1); } }
+
+.bid-message { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+.bid-ok { background: #e8f7ee; color: #1f8a4c; }
+.bid-error { background: #fdecef; color: #c2334b; }
+
+.seller-box, .result-box { display: grid; gap: 10px; font-size: 12px; color: #4b5568; line-height: 1.55; }
+.seller-box p, .result-box p { margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.result-box strong { color: var(--navy); }
+.payment-line { color: var(--muted); }
+
+.danger-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px; border-radius: 8px; border: 1px solid #f3c2cb; background: #fdecef;
+  color: #c2334b; font-size: 12px; font-weight: 800;
+}
+.danger-button:hover { background: #fbdbe1; }
+
+.history-empty { padding: 28px; text-align: center; color: var(--muted); font-size: 12px; }
+
+.link-button {
+  border: none; background: none; padding: 0; color: var(--blue);
+  font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; text-align: left;
+}
+
+/* ---------- Mi cuenta ---------- */
+.account-header {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 26px; background: #fff; border: 1px solid var(--line); border-radius: 13px; margin-top: 10px;
+}
+.account-avatar { width: 64px; height: 64px; }
+.account-header h1 { margin: 0; font: 800 24px Manrope; letter-spacing: -.8px; }
+.account-header p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.account-stats { margin-left: auto; display: flex; gap: 12px; }
+.account-stats div { display: grid; text-align: center; padding: 12px 18px; background: #f5f6fa; border-radius: 10px; }
+.account-stats strong { font: 800 22px Manrope; color: var(--navy); }
+.account-stats span { font-size: 10px; color: var(--muted); font-weight: 600; }
+.section-label svg { vertical-align: -2px; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1000px) {
+  .header-actions .register-button { padding: 10px; }
+  .account-stats { margin-left: 0; width: 100%; }
+  .account-stats div { flex: 1; }
+}
+@media (max-width: 700px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .form .span-2 { grid-column: auto; }
+  .notifications-panel { position: fixed; left: 10px; right: 10px; top: 80px; width: auto; }
+  .auction-specifications { grid-template-columns: 1fr 1fr; }
+  .user-button { padding: 10px !important; }
+}

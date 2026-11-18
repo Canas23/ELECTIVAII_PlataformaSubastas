@@ -1,0 +1,748 @@
+openapi: 3.0.3
+info:
+  title: Plataforma de Subastas en Línea — API
+  version: 1.0.0
+  description: |
+    API REST de la plataforma de subastas del equipo **Eso Va al Fallo** (Electiva II – Desarrollo,
+    Tecnológico de Antioquia).
+
+    **Tres canales de comunicación**
+
+    | Canal | Quién inicia | Qué transporta |
+    |---|---|---|
+    | API REST (`/api`) | La aplicación web | Registro, sesión, subastas, pujas, órdenes de pago |
+    | WebSocket (`/ws`) | El servidor | Nueva puja, aviso de superación, cierre, pago |
+    | Webhook (`/api/webhooks/payments`) | La pasarela de pagos | Resultado del cobro de una orden |
+
+    **Autenticación:** inicia sesión con `POST /api/auth/login`, copia el `token` y pulsa **Authorize**.
+    Todas las rutas de subastas exigen sesión (RN-23: la información de las subastas es para usuarios registrados).
+
+    **Montos:** pesos colombianos (COP), enteros y no negativos (RN-21).
+
+    ## Protocolo WebSocket
+
+    Conexión: `ws://localhost:3000/ws?token=<JWT>` (sin token válido la conexión se rechaza, RN-23).
+
+    Mensajes del **cliente → servidor**:
+
+    ```json
+    { "type": "subscribe",   "auctionId": "<id>" }
+    { "type": "unsubscribe", "auctionId": "<id>" }
+    { "type": "ping" }
+    ```
+
+    Mensajes del **servidor → cliente** (siempre `{ "type", "data", "sentAt" }`):
+
+    | type | A quién | data |
+    |---|---|---|
+    | `connected` | Al conectarse | `{ userId }` |
+    | `subscribed` | A quien se suscribe | `{ auctionId, participants }` |
+    | `bid.placed` | Todos los suscritos a la subasta (RF-13) | `{ auctionId, bidId, bidderId, amount, bidCount, minimumNextBid, placedAt }` |
+    | `bid.outbid` | Solo al postor superado (RF-14) | `{ auctionId, yourAmount, newAmount, minimumNextBid }` |
+    | `auction.closed` | Suscritos (RF-15) | `{ auctionId, status: ADJUDICATED \| DESERTED, winnerId, winningAmount, closedAt }` |
+    | `auction.cancelled` | Suscritos | `{ auctionId }` |
+    | `auction.payment` | Suscritos | `{ auctionId, status: PAID \| DEFAULTED }` |
+    | `auction.participants` | Suscritos (RF-16) | `{ auctionId, participants }` |
+    | `notification.created` | Destinatario | Una `Notification` (ver esquema) |
+    | `pong` | Respuesta a `ping` | `{}` |
+    | `unsubscribed` | A quien sale de la sala | `{ auctionId }` |
+    | `error` | Al cliente que envió algo inválido | `{ code, message }` |
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000
+    description: Servidor local
+
+tags:
+  - name: Sistema
+  - name: Usuarios
+  - name: Categorías
+  - name: Subastas
+  - name: Pujas
+  - name: Pagos
+  - name: Notificaciones
+  - name: Webhook
+  - name: Demostración
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/health:
+    get:
+      tags: [Sistema]
+      summary: Estado del servidor y hora del negocio
+      security: []
+      responses:
+        '200':
+          description: El servidor está arriba
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  now: { type: string, format: date-time }
+
+  /api/auth/register:
+    post:
+      tags: [Usuarios]
+      summary: Registrar usuario (RF-01)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80, example: Ana Pérez }
+                email: { type: string, format: email, example: ana@correo.com }
+                password: { type: string, minLength: 8, example: secreta123 }
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: El correo ya está registrado (RN-22)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /api/auth/login:
+    post:
+      tags: [Usuarios]
+      summary: Iniciar sesión y obtener token (RF-02)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: ana@correo.com }
+                password: { type: string, example: secreta123 }
+      responses:
+        '200':
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  tokenType: { type: string, example: Bearer }
+                  expiresIn: { type: string, example: 2h }
+                  user: { $ref: '#/components/schemas/User' }
+        '401':
+          description: Correo o contraseña incorrectos (mismo mensaje en ambos casos)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/users/me:
+    get:
+      tags: [Usuarios]
+      summary: Mi perfil con subastas publicadas y en las que participé (RF-03)
+      responses:
+        '200':
+          description: Perfil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  publishedAuctions:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuctionSummary' }
+                  participatedAuctions:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuctionSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/categories:
+    get:
+      tags: [Categorías]
+      summary: Listar categorías
+      security: []
+      responses:
+        '200':
+          description: Categorías disponibles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+
+  /api/auctions:
+    get:
+      tags: [Subastas]
+      summary: Listar subastas con filtros y paginación (RF-05)
+      description: Consultar el listado también cierra las subastas cuya fecha ya se cumplió (RF-08).
+      parameters:
+        - { in: query, name: categoryId, schema: { type: string } }
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/AuctionStatus' }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Página de subastas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuctionSummary' }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  total: { type: integer }
+                  totalItems: { type: integer }
+                  totalPages: { type: integer }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Subastas]
+      summary: Publicar una subasta (RF-04, RN-01 a RN-03)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description, condition, categoryId, basePrice, minIncrement, closesAt]
+              properties:
+                title: { type: string, minLength: 3, maxLength: 120, example: Cámara Canon AE-1 }
+                description: { type: string, minLength: 10, maxLength: 2000, example: 'Cámara de rollo en excelente estado, con lente 50mm.' }
+                condition: { $ref: '#/components/schemas/ItemCondition' }
+                categoryId: { type: string }
+                basePrice: { type: integer, minimum: 1, example: 100000, description: RN-01 }
+                minIncrement: { type: integer, minimum: 1, example: 10000, description: RN-01 }
+                closesAt:
+                  type: string
+                  format: date-time
+                  description: RN-02 no puede estar en el pasado; RN-03 duración entre 1 hora y 30 días.
+      responses:
+        '201':
+          description: Subasta publicada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuctionDetail' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: La categoría no existe
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /api/auctions/{auctionId}:
+    parameters:
+      - $ref: '#/components/parameters/AuctionId'
+    get:
+      tags: [Subastas]
+      summary: Detalle con oferta vigente e historial público (RF-06)
+      responses:
+        '200':
+          description: Detalle
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuctionDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/auctions/{auctionId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/AuctionId'
+    post:
+      tags: [Subastas]
+      summary: Cancelar una subasta propia sin pujas (RF-07, RN-04)
+      responses:
+        '200':
+          description: Subasta cancelada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuctionDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: No eres el vendedor (NOT_AUCTION_SELLER)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Ya tiene pujas (AUCTION_HAS_BIDS) o no está abierta (AUCTION_NOT_OPEN)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/auctions/{auctionId}/bids:
+    parameters:
+      - $ref: '#/components/parameters/AuctionId'
+    get:
+      tags: [Pujas]
+      summary: Historial público de pujas aceptadas (la vigente primero)
+      responses:
+        '200':
+          description: Pujas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Bid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Pujas]
+      summary: Pujar (RF-09, RN-06 a RN-10)
+      description: |
+        Si la puja se rechaza, el intento queda registrado con su motivo (RN-12) y la respuesta
+        trae el código de la regla incumplida:
+
+        | Código | HTTP | Regla |
+        |---|---|---|
+        | `AUCTION_NOT_OPEN` | 409 | RN-06 solo se puja en subastas abiertas |
+        | `SELLER_CANNOT_BID` | 403 | RN-07 el vendedor no puja por su artículo |
+        | `BELOW_BASE_PRICE` | 422 | RN-08 la primera puja ≥ precio base |
+        | `BELOW_MINIMUM_INCREMENT` | 422 | RN-09 superar la vigente en al menos el incremento |
+        | `ALREADY_HIGHEST_BIDDER` | 409 | RN-10 no superarse a sí mismo |
+        | `INVALID_AMOUNT` | 422 | RN-21 monto entero y positivo |
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount: { type: integer, example: 110000 }
+      responses:
+        '201':
+          description: Puja aceptada; se difunde por WebSocket como `bid.placed`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bid: { $ref: '#/components/schemas/Bid' }
+                  auction: { $ref: '#/components/schemas/AuctionSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: SELLER_CANNOT_BID
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BidRejected' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: AUCTION_NOT_OPEN o ALREADY_HIGHEST_BIDDER
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BidRejected' }
+        '422':
+          description: BELOW_BASE_PRICE, BELOW_MINIMUM_INCREMENT o INVALID_AMOUNT
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BidRejected' }
+
+  /api/auctions/{auctionId}/rejected-bids:
+    parameters:
+      - $ref: '#/components/parameters/AuctionId'
+    get:
+      tags: [Pujas]
+      summary: Auditoría de intentos de puja rechazados (RF-11, RN-12)
+      description: El vendedor ve todos los intentos rechazados; cada postor ve solo los suyos.
+      responses:
+        '200':
+          description: Intentos rechazados
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RejectedBidAttempt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/payment-orders:
+    get:
+      tags: [Pagos]
+      summary: Mis órdenes de pago como ganador (RF-17)
+      responses:
+        '200':
+          description: Órdenes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PaymentOrder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/payment-orders/{paymentOrderId}:
+    parameters:
+      - in: path
+        name: paymentOrderId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Pagos]
+      summary: Detalle de una orden de pago (ganador o vendedor)
+      responses:
+        '200':
+          description: Orden
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentOrder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: La orden no te pertenece
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/notifications:
+    get:
+      tags: [Notificaciones]
+      summary: Mis notificaciones (superado, ganaste, vendiste, pago…)
+      parameters:
+        - { in: query, name: unreadOnly, schema: { type: boolean, default: false } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200':
+          description: Notificaciones, la más reciente primero
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/notifications/{notificationId}/read:
+    parameters:
+      - in: path
+        name: notificationId
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Notificaciones]
+      summary: Marcar una notificación como leída
+      responses:
+        '200':
+          description: Notificación actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: La notificación es de otro usuario
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/webhooks/payments:
+    post:
+      tags: [Webhook]
+      summary: Notificación de la pasarela de pagos (RF-18 a RF-20)
+      description: |
+        Orden estricto de procesamiento:
+
+        1. **Origen (RN-18):** se verifica la firma HMAC-SHA256 del cuerpo crudo con
+           `PAYMENT_WEBHOOK_SECRET`. Si falla → `401` y no cambia nada.
+        2. **Idempotencia (RN-19):** si el `eventId` ya se procesó, se responde lo mismo con `replayed: true`.
+        3. **Aplicación:** solo entonces se confirma el pago (RN-17) o se registra el fallo.
+
+        Cabecera de firma: `x-gateway-signature: t=<unix-segundos>,v1=<hex>` donde
+        `v1 = HMAC_SHA256(secret, "<t>.<cuerpo crudo>")`. Firmas con más de
+        `PAYMENT_WEBHOOK_TOLERANCE_SECONDS` de antigüedad se rechazan.
+
+        Para probarlo sin pasarela real: `npm run gateway:simulate -- --order <id> --amount <valor>`.
+      security: []
+      parameters:
+        - in: header
+          name: x-gateway-signature
+          required: true
+          schema: { type: string, example: 't=1763000000,v1=5f2b…' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventId, type, paymentOrderId, amount, occurredAt]
+              properties:
+                eventId: { type: string, example: evt_123 }
+                type: { type: string, enum: [payment.approved, payment.rejected] }
+                paymentOrderId: { type: string }
+                amount: { type: integer, example: 130000 }
+                occurredAt: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Recibida (nueva o repetida)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean, example: true }
+                  eventId: { type: string }
+                  paymentOrderId: { type: string }
+                  outcome:
+                    type: string
+                    enum:
+                      [PAYMENT_CONFIRMED, PAYMENT_FAILURE_RECORDED, IGNORED_ORDER_EXPIRED, IGNORED_ORDER_NOT_PENDING, IGNORED_AMOUNT_MISMATCH]
+                  replayed: { type: boolean }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401':
+          description: Firma inválida, ausente o vencida (INVALID_WEBHOOK_SIGNATURE)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: La orden de pago no existe
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/dev/clock:
+    get:
+      tags: [Demostración]
+      summary: Ver la hora del negocio (solo con DEV_CLOCK_ENABLED=true)
+      security: []
+      responses:
+        '200':
+          description: Hora actual del negocio
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Clock' }
+
+  /api/dev/clock/advance:
+    post:
+      tags: [Demostración]
+      summary: Adelantar el reloj del negocio para mostrar cierres y vencimientos sin esperar
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [minutes]
+              properties:
+                minutes: { type: number, example: 120 }
+      responses:
+        '200':
+          description: Reloj adelantado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Clock' }
+
+  /api/dev/clock/reset:
+    post:
+      tags: [Demostración]
+      summary: Volver a la hora real
+      security: []
+      responses:
+        '200':
+          description: Reloj restablecido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Clock' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AuctionId:
+      in: path
+      name: auctionId
+      required: true
+      schema: { type: string }
+
+  responses:
+    Unauthorized:
+      description: Falta el token o venció (UNAUTHENTICATED)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: El recurso no existe
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Datos de entrada con formato inválido (VALIDATION_ERROR)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BusinessRule:
+      description: Se incumple una regla de negocio (el código indica cuál)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: INVALID_AUCTION_DURATION }
+            message: { type: string, example: La subasta debe durar entre una hora y treinta días. }
+            details: { type: object, additionalProperties: true }
+
+    BidRejected:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: BELOW_MINIMUM_INCREMENT }
+            message: { type: string }
+            details:
+              type: object
+              properties:
+                attemptId: { type: string, description: Identificador del intento registrado (RN-12) }
+                auctionStatus: { $ref: '#/components/schemas/AuctionStatus' }
+                currentPrice: { type: integer, nullable: true }
+                minimumNextBid: { type: integer, nullable: true }
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        registeredAt: { type: string, format: date-time }
+
+    Category:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, example: Electrónica }
+        slug: { type: string, example: electronica }
+
+    AuctionStatus:
+      type: string
+      enum: [OPEN, CANCELLED, DESERTED, ADJUDICATED, PAID, DEFAULTED]
+
+    ItemCondition:
+      type: string
+      enum: [NEW, LIKE_NEW, USED, FOR_PARTS]
+
+    AuctionSummary:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        condition: { $ref: '#/components/schemas/ItemCondition' }
+        categoryId: { type: string }
+        sellerId: { type: string }
+        status: { $ref: '#/components/schemas/AuctionStatus' }
+        currency: { type: string, example: COP }
+        basePrice: { type: integer }
+        minIncrement: { type: integer }
+        currentPrice: { type: integer, nullable: true }
+        minimumNextBid: { type: integer, nullable: true, description: Monto mínimo aceptable para la próxima puja }
+        bidCount: { type: integer }
+        publishedAt: { type: string, format: date-time }
+        closesAt: { type: string, format: date-time }
+        closedAt: { type: string, format: date-time, nullable: true }
+
+    AuctionDetail:
+      allOf:
+        - $ref: '#/components/schemas/AuctionSummary'
+        - type: object
+          properties:
+            description: { type: string }
+            seller:
+              type: object
+              properties:
+                id: { type: string }
+                name: { type: string }
+            bids:
+              type: array
+              items: { $ref: '#/components/schemas/Bid' }
+            winner:
+              type: object
+              nullable: true
+              properties:
+                id: { type: string }
+                name: { type: string }
+                amount: { type: integer }
+            payment:
+              type: object
+              nullable: true
+              properties:
+                status: { type: string, enum: [PENDING, PAID, EXPIRED] }
+                dueAt: { type: string, format: date-time }
+            cancelledAt: { type: string, format: date-time, nullable: true }
+
+    Bid:
+      type: object
+      properties:
+        id: { type: string }
+        bidderId: { type: string }
+        bidderName: { type: string, description: 'Solo el nombre público, sin datos de contacto (RN-23)' }
+        amount: { type: integer }
+        placedAt: { type: string, format: date-time }
+
+    RejectedBidAttempt:
+      type: object
+      properties:
+        id: { type: string }
+        bidderId: { type: string }
+        amount: { type: number }
+        reasonCode: { type: string, example: BELOW_MINIMUM_INCREMENT }
+        reason: { type: string }
+        attemptedAt: { type: string, format: date-time }
+
+    PaymentOrder:
+      type: object
+      properties:
+        id: { type: string }
+        auctionId: { type: string }
+        auctionTitle: { type: string }
+        winnerId: { type: string }
+        sellerId: { type: string }
+        currency: { type: string, example: COP }
+        amount: { type: integer }
+        status: { type: string, enum: [PENDING, PAID, EXPIRED] }
+        issuedAt: { type: string, format: date-time }
+        dueAt: { type: string, format: date-time, description: RN-15 plazo de 48 horas }
+        paidAt: { type: string, format: date-time, nullable: true }
+        expiredAt: { type: string, format: date-time, nullable: true }
+
+    Notification:
+      type: object
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [OUTBID, AUCTION_WON, AUCTION_SOLD, AUCTION_DESERTED, PAYMENT_CONFIRMED, PAYMENT_FAILED, PAYMENT_OVERDUE]
+        message: { type: string }
+        auctionId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: string, format: date-time, nullable: true }
+
+    Clock:
+      type: object
+      properties:
+        now: { type: string, format: date-time }
+        offsetMinutes: { type: number }

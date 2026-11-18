@@ -1,0 +1,232 @@
+###############################################################################
+# Colección de peticiones — Plataforma de Subastas en Línea
+# Uso: extensión "REST Client" de VS Code → clic en "Send Request" sobre cada una.
+# Ejecútalas EN ORDEN: las respuestas de login y publicación alimentan a las siguientes.
+###############################################################################
+
+@api = http://localhost:3000/api
+
+### 0. Estado del servidor
+GET {{api}}/health
+
+###############################################################################
+# 1. USUARIOS (RF-01, RF-02)
+###############################################################################
+
+### 1.1 Registrar vendedor
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{ "name": "Vendedor Demo", "email": "vendedor@demo.com", "password": "secreta123" }
+
+### 1.2 Registrar a Ana
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{ "name": "Ana Pérez", "email": "ana@demo.com", "password": "secreta123" }
+
+### 1.3 Registrar a Luis
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{ "name": "Luis Gómez", "email": "luis@demo.com", "password": "secreta123" }
+
+### 1.4 Correo repetido → 409 EMAIL_ALREADY_REGISTERED (RN-22)
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{ "name": "Otra Ana", "email": "ANA@demo.com", "password": "secreta123" }
+
+### 1.5 Login vendedor
+# @name loginVendedor
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "vendedor@demo.com", "password": "secreta123" }
+
+### 1.6 Login Ana
+# @name loginAna
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "ana@demo.com", "password": "secreta123" }
+
+### 1.7 Login Luis
+# @name loginLuis
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "luis@demo.com", "password": "secreta123" }
+
+###
+@tokenVendedor = {{loginVendedor.response.body.token}}
+@tokenAna = {{loginAna.response.body.token}}
+@tokenLuis = {{loginLuis.response.body.token}}
+
+###############################################################################
+# 2. SUBASTAS (RF-04, RF-05, RF-06)
+###############################################################################
+
+### 2.1 Categorías
+# @name categorias
+GET {{api}}/categories
+
+###
+@categoria = {{categorias.response.body.$[2].id}}
+
+### 2.2 Sin sesión → 401 (RN-23)
+GET {{api}}/auctions
+
+### 2.3 Duración de 10 minutos → 422 INVALID_AUCTION_DURATION (RN-03)
+# Cambia la fecha por una a 10 minutos de la hora actual (formato ISO, UTC)
+POST {{api}}/auctions
+Authorization: Bearer {{tokenVendedor}}
+Content-Type: application/json
+
+{
+  "title": "Cámara Canon AE-1",
+  "description": "Cámara de rollo en excelente estado, con lente 50mm.",
+  "condition": "USED",
+  "categoryId": "{{categoria}}",
+  "basePrice": 100000,
+  "minIncrement": 10000,
+  "closesAt": "{{$datetime iso8601 10 m}}"
+}
+
+### 2.4 Publicar subasta válida (cierra en 2 horas)
+# @name publicar
+POST {{api}}/auctions
+Authorization: Bearer {{tokenVendedor}}
+Content-Type: application/json
+
+{
+  "title": "Cámara Canon AE-1",
+  "description": "Cámara de rollo en excelente estado, con lente 50mm.",
+  "condition": "USED",
+  "categoryId": "{{categoria}}",
+  "basePrice": 100000,
+  "minIncrement": 10000,
+  "closesAt": "{{$datetime iso8601 2 h}}"
+}
+
+###
+@subasta = {{publicar.response.body.id}}
+
+### 2.5 Listar subastas abiertas
+GET {{api}}/auctions?status=OPEN&page=1&pageSize=10
+Authorization: Bearer {{tokenAna}}
+
+### 2.6 Detalle
+GET {{api}}/auctions/{{subasta}}
+Authorization: Bearer {{tokenAna}}
+
+###############################################################################
+# 3. PUJAS (RF-09, RN-06 a RN-12)
+#   Deja corriendo en dos terminales para ver el tiempo real:
+#   npx tsx scripts/ws-client.ts --email ana@demo.com  --password secreta123 --auction <id>
+#   npx tsx scripts/ws-client.ts --email luis@demo.com --password secreta123 --auction <id>
+###############################################################################
+
+### 3.1 El vendedor puja → 403 SELLER_CANNOT_BID (RN-07)
+POST {{api}}/auctions/{{subasta}}/bids
+Authorization: Bearer {{tokenVendedor}}
+Content-Type: application/json
+
+{ "amount": 120000 }
+
+### 3.2 Menor al precio base → 422 BELOW_BASE_PRICE (RN-08)
+POST {{api}}/auctions/{{subasta}}/bids
+Authorization: Bearer {{tokenAna}}
+Content-Type: application/json
+
+{ "amount": 90000 }
+
+### 3.3 Ana puja el precio base → 201 (bid.placed en los WebSockets)
+POST {{api}}/auctions/{{subasta}}/bids
+Authorization: Bearer {{tokenAna}}
+Content-Type: application/json
+
+{ "amount": 100000 }
+
+### 3.4 Ana intenta superarse → 409 ALREADY_HIGHEST_BIDDER (RN-10)
+POST {{api}}/auctions/{{subasta}}/bids
+Authorization: Bearer {{tokenAna}}
+Content-Type: application/json
+
+{ "amount": 150000 }
+
+### 3.5 Luis sube menos del incremento → 422 BELOW_MINIMUM_INCREMENT (RN-09)
+POST {{api}}/auctions/{{subasta}}/bids
+Authorization: Bearer {{tokenLuis}}
+Content-Type: application/json
+
+{ "amount": 105000 }
+
+### 3.6 Luis supera a Ana → 201 (Ana recibe bid.outbid)
+POST {{api}}/auctions/{{subasta}}/bids
+Authorization: Bearer {{tokenLuis}}
+Content-Type: application/json
+
+{ "amount": 130000 }
+
+### 3.7 Historial público
+GET {{api}}/auctions/{{subasta}}/bids
+Authorization: Bearer {{tokenAna}}
+
+### 3.8 Auditoría de rechazos (el vendedor ve todos) (RN-12)
+GET {{api}}/auctions/{{subasta}}/rejected-bids
+Authorization: Bearer {{tokenVendedor}}
+
+### 3.9 Cancelar con pujas → 409 AUCTION_HAS_BIDS (RN-04)
+POST {{api}}/auctions/{{subasta}}/cancel
+Authorization: Bearer {{tokenVendedor}}
+
+###############################################################################
+# 4. CIERRE Y PAGO (RF-08, RF-17, RN-13 a RN-20)
+###############################################################################
+
+### 4.1 Adelantar el reloj 3 horas (requiere DEV_CLOCK_ENABLED=true)
+POST {{api}}/dev/clock/advance
+Content-Type: application/json
+
+{ "minutes": 180 }
+
+### 4.2 La subasta queda ADJUDICATED con ganador Luis
+GET {{api}}/auctions/{{subasta}}
+Authorization: Bearer {{tokenLuis}}
+
+### 4.3 Orden de pago de Luis (48 h)
+# @name ordenes
+GET {{api}}/payment-orders
+Authorization: Bearer {{tokenLuis}}
+
+###
+@orden = {{ordenes.response.body.$[0].id}}
+
+### 4.4 El webhook se prueba con el simulador (firma HMAC):
+#   npx tsx scripts/simulate-payment.ts --order {{orden}} --amount 130000 --bad-signature   → 401
+#   npx tsx scripts/simulate-payment.ts --order {{orden}} --amount 130000 --repeat 3        → 200, idempotente
+# Petición sin firma → 401 INVALID_WEBHOOK_SIGNATURE (RN-18)
+POST {{api}}/webhooks/payments
+Content-Type: application/json
+
+{ "eventId": "evt_sin_firma", "type": "payment.approved", "paymentOrderId": "{{orden}}", "amount": 130000, "occurredAt": "{{$datetime iso8601}}" }
+
+### 4.5 Después del pago: subasta PAID
+GET {{api}}/auctions/{{subasta}}
+Authorization: Bearer {{tokenLuis}}
+
+###############################################################################
+# 5. PERFIL Y NOTIFICACIONES
+###############################################################################
+
+### 5.1 Mi perfil
+GET {{api}}/users/me
+Authorization: Bearer {{tokenLuis}}
+
+### 5.2 Mis notificaciones
+GET {{api}}/notifications
+Authorization: Bearer {{tokenAna}}
+
+### 5.3 Volver el reloj a la hora real
+POST {{api}}/dev/clock/reset
